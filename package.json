@@ -1,0 +1,32 @@
+{
+  "name": "csv-records-app",
+  "version": "1.0.0",
+  "description": "A Next.js application to display active records from a CSV file.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@tabler/core": "^1.5.0",
+    "@tabler/icons-react": "^3.46.0",
+    "csv-parse": "^7.0.2",
+    "csv-parser": "^3.0.0",
+    "googleapis": "^180.0.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "typescript": "latest"
+  },
+  "license": "MIT"
+}
