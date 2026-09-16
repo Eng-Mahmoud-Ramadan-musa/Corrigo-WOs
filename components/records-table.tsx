@@ -1,5 +1,5 @@
 import { IconTrash } from '@tabler/icons-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface RecordsTableProps {
   records: Array<Record<string, string>>;
@@ -7,8 +7,7 @@ interface RecordsTableProps {
   filterValues?: Record<string, string[]>;
   columnFilters?: Record<string, string[]>;
   onColumnFilterChange?: (column: string, value: string, multiSelect?: boolean) => void;
-  onOpChange?: (woNumber: string, value: string) => void;
-  onOpSave?: (woNumber: string) => void;
+  onOpSave?: (woNumber: string, value: string) => void;
   onDeleteRow?: (woNumber: string) => void;
   onRowClick?: (woNumber: string) => void;
   getRowColor?: (woNumber: string) => string | undefined;
@@ -22,7 +21,6 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
   filterValues = {},
   columnFilters = {},
   onColumnFilterChange,
-  onOpChange,
   onOpSave,
   onDeleteRow,
   onRowClick,
@@ -32,6 +30,8 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
 }) => {
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [multiSelectColumn, setMultiSelectColumn] = useState<string | null>('Occupier');
+  const [opDialog, setOpDialog] = useState<{ woNumber: string; value: string } | null>(null);
+  const opDialogRef = useRef<HTMLDialogElement>(null);
   const columns = providedColumns ?? (records.length > 0
     ? Object.keys(records[0]).filter((column) => column.trim() !== '')
     : []);
@@ -51,6 +51,25 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
     const columnWeight = weights[column] ?? 1.2;
 
     return `${(columnWeight / totalWeight) * 89}%`;
+  };
+
+  useEffect(() => {
+    const dialog = opDialogRef.current;
+    if (!dialog) return;
+
+    if (opDialog && !dialog.open) {
+      dialog.showModal();
+    } else if (!opDialog && dialog.open) {
+      dialog.close();
+    }
+  }, [opDialog]);
+
+  const openOpDialog = (woNumber: string, value: string) => {
+    setOpDialog({ woNumber, value });
+  };
+
+  const closeOpDialog = () => {
+    setOpDialog(null);
   };
 
   return (
@@ -153,26 +172,39 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
               {columns.map((column) => (
                 <td className="record-cell" key={column} title={String(record[column] ?? '')} style={rowColor ? { backgroundColor: rowColor, color: '#ffffff' } : undefined}>
                   {column === 'OP' ? (
-                    <div className="op-editor">
-                      <input
-                        className="op-input"
-                        value={record[column] || ''}
-                        aria-label={`OP for ${record['WO Number']}`}
-                        onChange={(event) => onOpChange?.(String(record['WO Number'] || ''), event.target.value)}
-                      />
+                    record[column] ? (
+                      <p
+                        className="op-value"
+                        role="button"
+                        tabIndex={0}
+                        title="Edit OP"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openOpDialog(String(record['WO Number'] || ''), String(record[column]));
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openOpDialog(String(record['WO Number'] || ''), String(record[column]));
+                          }
+                        }}
+                      >
+                        {record[column]}
+                      </p>
+                    ) : (
                       <button
                         type="button"
-                        className="op-save-button"
-                        aria-label={savingOp === String(record['WO Number'] || '') ? 'Saving OP' : record[column] ? 'Update OP' : 'Save OP'}
-                        title={savingOp === String(record['WO Number'] || '') ? 'Saving OP' : record[column] ? 'Update OP' : 'Save OP'}
-                        disabled={savingOp === String(record['WO Number'] || '')}
-                        onClick={() => onOpSave?.(String(record['WO Number'] || ''))}
+                        className="op-write-button"
+                        aria-label={`Write OP for ${record['WO Number']}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openOpDialog(String(record['WO Number'] || ''), '');
+                        }}
                       >
-                        <span aria-hidden="true">
-                          {savingOp === String(record['WO Number'] || '') ? <>&#x23F3;</> : <>&#x1F4BE;</>}
-                        </span>
+                        Write OP
                       </button>
-                    </div>
+                    )
                   ) : (record[column] || '-')}
                 </td>
               ))}
@@ -195,6 +227,42 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
           })}
         </tbody>
       </table>
+      <dialog
+        ref={opDialogRef}
+        className="op-dialog"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeOpDialog();
+        }}
+      >
+        <form
+          method="dialog"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!opDialog) return;
+            onOpSave?.(opDialog.woNumber, opDialog.value.trim());
+            closeOpDialog();
+          }}
+        >
+          <h2>{opDialog?.value ? 'Edit OP' : 'Write OP'}</h2>
+          <label className="op-dialog-field">
+            <span>OP</span>
+            <input
+              className="op-input"
+              autoFocus
+              value={opDialog?.value ?? ''}
+              aria-label="OP"
+              onChange={(event) => setOpDialog((current) => current ? { ...current, value: event.target.value } : current)}
+            />
+          </label>
+          <div className="op-dialog-actions">
+            <button type="button" className="op-cancel-button" onClick={closeOpDialog}>Cancel</button>
+            <button type="submit" className="op-save-button" disabled={!opDialog || savingOp === opDialog.woNumber}>
+              {savingOp === opDialog?.woNumber ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </dialog>
       {records.length === 0 && <p className="empty-state text-center">No work orders match these filters.</p>}
     </div>
   );

@@ -18,6 +18,8 @@ const Page = () => {
   const [savingOp, setSavingOp] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isLoadingRecords, setIsLoadingRecords] = useState(true);
+  const [isRefreshingRecords, setIsRefreshingRecords] = useState(false);
   const [coloringEnabled, setColoringEnabled] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#2563eb');
   const [rowColors, setRowColors] = useState<Record<string, string>>({});
@@ -50,13 +52,26 @@ const Page = () => {
 
   useEffect(() => {
     let cancelled = false;
+    let isFetching = false;
+    let controller: AbortController | null = null;
 
     const fetchRecords = async () => {
+      if (cancelled || isFetching) return;
+
+      isFetching = true;
+      controller?.abort();
+      controller = new AbortController();
+      setIsRefreshingRecords(true);
+
       try {
-        const response = await fetch('/api/records', { cache: 'no-store' });
+        const response = await fetch('/api/records', {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error('Unable to refresh records');
 
         const data = await response.json() as Array<Record<string, string>>;
+        if (!Array.isArray(data)) throw new Error('Invalid records response');
         if (cancelled) return;
 
         setRecords((currentRecords) => {
@@ -97,17 +112,31 @@ const Page = () => {
           });
         }));
         setLastUpdated(new Date());
-      } catch {
-        if (!cancelled) setSaveMessage('Unable to refresh records');
+      } catch (error) {
+        if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
+          setSaveMessage('Unable to refresh records');
+        }
+      } finally {
+        isFetching = false;
+        if (!cancelled) {
+          setIsLoadingRecords(false);
+          setIsRefreshingRecords(false);
+        }
       }
     };
 
     fetchRecords();
     const refreshTimer = window.setInterval(fetchRecords, 30_000);
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible') fetchRecords();
+    };
+    document.addEventListener('visibilitychange', refreshOnVisibility);
 
     return () => {
       cancelled = true;
+      controller?.abort();
       window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
     };
   }, []);
 
@@ -215,15 +244,7 @@ const Page = () => {
     });
   };
 
-  const updateOp = (woNumber: string, value: string) => {
-    opMatrixRef.current = { ...opMatrixRef.current, [woNumber]: value };
-    setOpMatrix(opMatrixRef.current);
-    setRecords((currentRecords) => currentRecords.map((record) => (
-      String(record['WO Number'] || '') === woNumber ? { ...record, OP: value } : record
-    )));
-  };
-
-  const saveOp = async (woNumber: string) => {
+  const saveOp = async (woNumber: string, value: string) => {
     const record = records.find((item) => String(item['WO Number'] || '') === woNumber);
     if (!record) return;
 
@@ -233,14 +254,17 @@ const Page = () => {
       const response = await fetch('/api/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ woNumber, op: record.OP || '' }),
+        body: JSON.stringify({ woNumber, op: value }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         throw new Error(data?.error || 'Unable to save OP to Google Sheets');
       }
-      opMatrixRef.current = { ...opMatrixRef.current, [woNumber]: record.OP || '' };
+      opMatrixRef.current = { ...opMatrixRef.current, [woNumber]: value };
       setOpMatrix(opMatrixRef.current);
+      setRecords((currentRecords) => currentRecords.map((currentRecord) => (
+        String(currentRecord['WO Number'] || '') === woNumber ? { ...currentRecord, OP: value } : currentRecord
+      )));
       setSaveMessage('OP saved successfully');
     } catch (error) {
       setSaveMessage(error instanceof Error ? error.message : 'Unable to save OP to Google Sheets');
@@ -378,7 +402,7 @@ const Page = () => {
   const printableColumns = columns.slice(0, 5);
 
   return (
-    <main>
+    <main id="top">
       <h1>Work Orders</h1>
       <div className="row-color-toolbar">
         <button
@@ -437,7 +461,12 @@ const Page = () => {
           </label>
           <div className="summary-card ">
             <h2>All work orders</h2>
-            <p>{filteredRecords.length} records</p>
+            <p>{isLoadingRecords ? 'Loading records...' : `${filteredRecords.length} records`}</p>
+            {lastUpdated && !isLoadingRecords && (
+              <small className="refresh-message">
+                {isRefreshingRecords ? 'Refreshing...' : `Updated ${lastUpdated.toLocaleTimeString()}`}
+              </small>
+            )}
           </div>
           <div>
             <label className="deadline-sort-control">
@@ -472,7 +501,6 @@ const Page = () => {
           filterValues={filterValues}
           columnFilters={columnFilters as unknown as Record<string, string[]>}
           onColumnFilterChange={updateColumnFilter}
-          onOpChange={updateOp}
           onOpSave={saveOp}
           onDeleteRow={deleteRow}
           onRowClick={colorRow}

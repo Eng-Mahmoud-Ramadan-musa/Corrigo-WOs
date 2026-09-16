@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import './globals.css';
+import Footer from '../components/footer/Footer';
 
 export const metadata: Metadata = {
   title: "Corrigo WOs",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body id="top">
+        {children}
+        <Footer />
+      </body>
     </html>
   );
 }
