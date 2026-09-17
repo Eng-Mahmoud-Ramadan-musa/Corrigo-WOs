@@ -14,13 +14,16 @@ csv-records-app
 │   ├── layout.tsx              # Layout component for the application
 │   └── globals.css             # Global CSS styles
 ├── components
-│   └── records-table.tsx       # Component for rendering records in a table
-├── data
-│   └── records.csv             # CSV file containing the records
+│   ├── records-table.tsx        # Interactive records table
+│   └── records
+│       └── printable-records.tsx # Print-only records table
 ├── lib
-│   └── csv.ts                  # Functions for reading and parsing CSV data
+│   ├── pdf
+│   │   └── export-records-pdf.ts # PDF export module
+│   └── records
+│       └── logic.ts             # Filtering, summaries, sorting, and date rules
 ├── types
-│   └── record.ts               # TypeScript interface for record structure
+│   └── record.ts                # TypeScript interface for record structure
 ├── package.json                 # npm configuration file
 ├── tsconfig.json               # TypeScript configuration file
 ├── next.config.ts              # Next.js configuration file

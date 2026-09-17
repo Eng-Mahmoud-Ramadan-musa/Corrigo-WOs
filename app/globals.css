@@ -283,6 +283,49 @@ label.column-filter-option input {
     background: #dbeafe;
 }
 
+.saved-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.saved-filters > input,
+.saved-filters > button,
+.saved-filter button {
+    min-height: 32px;
+    border: 1px solid #aebcbc;
+    background: #fff;
+    color: #172b2b;
+    font: inherit;
+}
+
+.saved-filters > input {
+    width: 130px;
+    padding: 4px 8px;
+}
+
+.saved-filters > button,
+.saved-filter button {
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.saved-filters > button:hover,
+.saved-filter button:hover {
+    background: #dbeafe;
+}
+
+.saved-filter {
+    display: inline-flex;
+}
+
+.saved-filter button + button {
+    padding-inline: 5px;
+    color: #b91c1c;
+}
+
 .op-value {
     margin: 0;
     cursor: pointer;

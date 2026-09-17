@@ -1,11 +1,21 @@
 "use client";
 import React, { useEffect, useRef, useState } from 'react';
 import RecordsTable from '../components/records-table';
-import { IconPencilOff, IconPencilCheck, IconDeviceFloppy, IconFileTypePdf, IconFilterCancel } from '@tabler/icons-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import PrintableRecords from '../components/records/printable-records';
+import { IconPencilOff, IconPencilCheck, IconDeviceFloppy, IconFileTypePdf, IconFilterCancel, IconBookmark, IconTrash } from '@tabler/icons-react';
+import { exportRecordsPdf } from '../lib/pdf/export-records-pdf';
+import {
+  createSummaryCards,
+  getCreatedAgeClass,
+  getLastMessage,
+  getInspectionRowColor,
+  isVisibleRecord,
+  normalizeFilterValue,
+  sortByDeadline,
+} from '../lib/records/logic';
 
 const Page = () => {
+  type SavedFilter = { id: string; name: string; filters: Record<string, string[]> };
   const [records, setRecords] = useState<Array<Record<string, string>>>([]);
   const [opMatrix, setOpMatrix] = useState<Record<string, string>>({});
   const opMatrixRef = useRef<Record<string, string>>({});
@@ -14,7 +24,9 @@ const Page = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [messageFilter, setMessageFilter] = useState('all');
   const [deadlineSort, setDeadlineSort] = useState('ascending');
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [savedFilterName, setSavedFilterName] = useState('');
   const [savingOp, setSavingOp] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -35,9 +47,6 @@ const Page = () => {
     { name: 'Teal 600', value: '#0d9488' },
   ];
 
-  const excludedOccupier = /smart village|maadi cornishe/i;
-  const isVisibleRecord = (record: Record<string, string>) => !excludedOccupier.test(record['Occupier'] || '');
-
   useEffect(() => {
     try {
       const storedColors = window.localStorage.getItem('work-order-row-colors');
@@ -49,6 +58,18 @@ const Page = () => {
   useEffect(() => {
     window.localStorage.setItem('work-order-row-colors', JSON.stringify(rowColors));
   }, [rowColors]);
+
+  useEffect(() => {
+    try {
+      const storedFilters = window.localStorage.getItem('work-order-saved-filters');
+      if (storedFilters) setSavedFilters(JSON.parse(storedFilters) as SavedFilter[]);
+    } catch {
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('work-order-saved-filters', JSON.stringify(savedFilters));
+  }, [savedFilters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,38 +161,8 @@ const Page = () => {
     };
   }, []);
 
-  const getLastMessage = (record: Record<string, string>) =>
-    (record['Last Message'] || '').trim().toLowerCase();
-
   const visibleRecords = records.filter(isVisibleRecord);
-
-  const groupedSummaryCards = [
-    {
-      key: 'offer-shared',
-      label: 'Offer Shared',
-      matches: (message: string) => message.includes('offer shared'),
-    },
-    {
-      key: 'approved',
-      label: 'Approved',
-      matches: (message: string) => message.includes('approved'),
-    },
-  ];
-
-  const otherSummaryCards = Array.from(new Set(
-    visibleRecords
-      .map((record) => String(record['Last Message'] || '').trim())
-      .filter(Boolean)
-  )).filter((message) => {
-    const normalizedMessage = message.toLowerCase();
-    return !groupedSummaryCards.some((card) => card.matches(normalizedMessage));
-  }).map((message) => ({
-    key: message.toLowerCase(),
-    label: `${message.split(/\s+/).slice(0, 3).join(' ')}${message.split(/\s+/).length > 3 ? '...' : ''}`,
-    matches: (currentMessage: string) => currentMessage === message.toLowerCase(),
-  }));
-
-  const summaryCards = [...groupedSummaryCards, ...otherSummaryCards];
+  const summaryCards = createSummaryCards(visibleRecords);
 
   const matchesMessageFilter = (record: Record<string, string>, filter: string) => {
     if (filter === 'all') return true;
@@ -181,7 +172,7 @@ const Page = () => {
   };
 
   const uniqueValues = (column: string) => Array.from(new Set(
-    visibleRecords.map((record) => record[column]).filter(Boolean)
+    visibleRecords.map((record) => normalizeFilterValue(column, record[column] || '')).filter(Boolean)
   )).sort();
 
   const columns = records.length > 0
@@ -196,29 +187,13 @@ const Page = () => {
     const matchesCategory = categoryFilter === 'all' || record.Category === categoryFilter;
     const matchesMessage = matchesMessageFilter(record, messageFilter);
     const matchesColumnFilters = Object.entries(columnFilters).every(
-      ([column, value]) => !value || record[column] === value
+      ([column, values]) => values.length === 0 || values.includes(normalizeFilterValue(column, record[column] || ''))
     );
 
     return matchesSearch && matchesState && matchesCategory && matchesMessage && matchesColumnFilters;
   });
 
-  const sortedRecords = deadlineSort === 'none'
-    ? filteredRecords
-    : [...filteredRecords].sort((firstRecord, secondRecord) => {
-      const firstDeadline = Number(firstRecord['Deadline']);
-      const secondDeadline = Number(secondRecord['Deadline']);
-      const firstIsMissing = !Number.isFinite(firstDeadline);
-      const secondIsMissing = !Number.isFinite(secondDeadline);
-
-      if (firstIsMissing || secondIsMissing) {
-        if (firstIsMissing && secondIsMissing) return 0;
-        return firstIsMissing ? 1 : -1;
-      }
-
-      return deadlineSort === 'ascending'
-        ? firstDeadline - secondDeadline
-        : secondDeadline - firstDeadline;
-    });
+  const sortedRecords = sortByDeadline(filteredRecords, deadlineSort);
 
   const hasFilters = search || stateFilter !== 'all' || categoryFilter !== 'all' || messageFilter !== 'all' || Object.values(columnFilters).some(Boolean);
 
@@ -230,18 +205,51 @@ const Page = () => {
     setColumnFilters({});
   };
 
-  const updateColumnFilter = (column: string, value: string) => {
+  const updateColumnFilter = (column: string, value: string, multiSelect = true) => {
     setColumnFilters((currentFilters) => {
       const nextFilters = { ...currentFilters };
 
-      if (value) {
-        nextFilters[column] = value;
-      } else {
+      if (!value) {
         delete nextFilters[column];
+      } else if (!multiSelect) {
+        nextFilters[column] = [value];
+      } else {
+        const currentValues = nextFilters[column] || [];
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((currentValue) => currentValue !== value)
+          : [...currentValues, value];
+        if (nextValues.length) nextFilters[column] = nextValues;
+        else delete nextFilters[column];
       }
 
       return nextFilters;
     });
+  };
+
+  const saveCurrentFilter = () => {
+    const name = savedFilterName.trim();
+    if (!name || !Object.keys(columnFilters).length) return;
+    setSavedFilters((currentFilters) => [
+      ...currentFilters.filter((filter) => filter.name !== name),
+      { id: `${Date.now()}`, name, filters: columnFilters },
+    ]);
+    setSavedFilterName('');
+  };
+
+  const applySavedFilter = (filter: SavedFilter) => {
+    setColumnFilters(filter.filters);
+  };
+
+  const matchesSavedFilter = (record: Record<string, string>, filter: SavedFilter) =>
+    Object.entries(filter.filters).every(
+      ([column, values]) => values.length === 0 || values.includes(normalizeFilterValue(column, record[column] || ''))
+    );
+
+  const isSavedFilterActive = (filter: SavedFilter) =>
+    JSON.stringify(columnFilters) === JSON.stringify(filter.filters);
+
+  const deleteSavedFilter = (id: string) => {
+    setSavedFilters((currentFilters) => currentFilters.filter((filter) => filter.id !== id));
   };
 
   const saveOp = async (woNumber: string, value: string) => {
@@ -311,95 +319,18 @@ const Page = () => {
     });
   };
 
-  const getCreatedAgeClass = (record: Record<string, string>) => {
-    if (record.Category?.trim().toLowerCase() !== 'request') return '';
-    if (!(record['Last Message'] || '').toLowerCase().includes('please check out')) return '';
-
-    const created = String(record.Created || '');
-    const parts = created.trim().split(/[\/\-]/).map(Number);
-    let createdDate: Date;
-
-    if (parts.length === 3 && parts.every(Number.isFinite)) {
-      const [first, second, third] = parts;
-      createdDate = first > 31
-        ? new Date(first, second - 1, third)
-        : new Date(third, second - 1, first);
-    } else {
-      createdDate = new Date(created);
-    }
-
-    if (Number.isNaN(createdDate.getTime())) return '';
-    createdDate.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const ageInDays = Math.floor((today.getTime() - createdDate.getTime()) / 86_400_000);
-
-    if (ageInDays > 4) return 'record-over-four-days';
-    if (ageInDays > 3) return 'record-over-three-days';
-    return '';
-  };
-
   const savePdf = async () => {
     const sourceTable = document.querySelector('.records-table') as HTMLElement | null;
     if (!sourceTable) return;
 
-    const table = sourceTable.cloneNode(true) as HTMLElement;
-    const headerCells = table.querySelectorAll('thead th');
-    const bodyRows = table.querySelectorAll('tbody tr');
-    const columnDefinitions = table.querySelectorAll('colgroup col');
-    const maxColumnIndex = 5;
-
-    columnDefinitions.forEach((column, index) => {
-      if (index > maxColumnIndex) column.remove();
-    });
-    headerCells.forEach((cell, index) => {
-      if (index > maxColumnIndex) cell.remove();
-    });
-    bodyRows.forEach((row) => {
-      row.querySelectorAll('td').forEach((cell, index) => {
-        if (index > maxColumnIndex) cell.remove();
-      });
-    });
-
-    table.style.position = 'absolute';
-    table.style.left = '-10000px';
-    table.style.top = '0';
-    table.style.width = '1400px';
-    document.body.appendChild(table);
-
     try {
-      const canvas = await html2canvas(table, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-      });
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const margin = 6;
-      const pageWidth = 297 - margin * 2;
-      const pageHeight = 210 - margin * 2;
-      const imageHeight = (canvas.height * pageWidth) / canvas.width;
-      let remainingHeight = imageHeight;
-      let position = margin;
-
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, position, pageWidth, imageHeight);
-      remainingHeight -= pageHeight;
-
-      while (remainingHeight > 0) {
-        position = margin - (imageHeight - remainingHeight);
-        pdf.addPage();
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, position, pageWidth, imageHeight);
-        remainingHeight -= pageHeight;
-      }
-
-      pdf.save('work-orders.pdf');
+      await exportRecordsPdf(sourceTable);
     } catch {
       setSaveMessage('Unable to export PDF');
-    } finally {
-      table.remove();
     }
   };
 
-  const printableColumns = columns.slice(0, 5);
+  const printableColumns = [...columns.slice(0, 5), ...(columns.includes('OP') && !columns.slice(0, 5).includes('OP') ? ['OP'] : [])];
 
   return (
     <main id="top">
@@ -446,6 +377,43 @@ const Page = () => {
             </button>
           );
         })}
+        {savedFilters.map((filter) => {
+          const isActive = isSavedFilterActive(filter);
+          const count = visibleRecords.filter((record) => matchesSavedFilter(record, filter)).length;
+
+          return (
+            <button
+              key={`saved-${filter.id}`}
+              type="button"
+              className={`summary-card summary-card-button saved-filter-summary-card${isActive ? ' active' : ''}`}
+              aria-pressed={isActive}
+              onClick={() => setColumnFilters(isActive ? {} : filter.filters)}
+              title="Apply saved filter"
+            >
+              <span>{filter.name}:</span>
+              <strong>{count}</strong>
+            </button>
+          );
+        })}
+        <div className="saved-filters" aria-label="Saved filters">
+          <input
+            type="text"
+            value={savedFilterName}
+            placeholder="Filter name"
+            onChange={(event) => setSavedFilterName(event.target.value)}
+          />
+          <button type="button" onClick={saveCurrentFilter} title="Save current filters" aria-label="Save current filters">
+            <IconBookmark stroke={2} />
+          </button>
+          {savedFilters.map((filter) => (
+            <span className="saved-filter" key={filter.id}>
+              <button type="button" onClick={() => applySavedFilter(filter)}>{filter.name}</button>
+              <button type="button" onClick={() => deleteSavedFilter(filter.id)} title={`Delete ${filter.name}`} aria-label={`Delete ${filter.name}`}>
+                <IconTrash stroke={2} />
+              </button>
+            </span>
+          ))}
+        </div>
       </section>
       <section className="orders-section">
         <div className="orders-header">
@@ -499,44 +467,28 @@ const Page = () => {
           records={sortedRecords}
           columns={columns}
           filterValues={filterValues}
-          columnFilters={columnFilters as unknown as Record<string, string[]>}
+          columnFilters={columnFilters}
           onColumnFilterChange={updateColumnFilter}
           onOpSave={saveOp}
           onDeleteRow={deleteRow}
           onRowClick={colorRow}
-          getRowColor={(woNumber) => rowColors[woNumber]}
+          getRowColor={(woNumber) => {
+            const record = records.find((item) => String(item['WO Number'] || '').trim() === woNumber) || {};
+            return getInspectionRowColor(record) || rowColors[woNumber];
+          }}
           savingOp={savingOp}
           getRowClassName={getCreatedAgeClass}
         />
       </section>
-      <section className="print-area" aria-label="Printable work orders">
-        <h1>Work Orders</h1>
-        <table className="print-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              {printableColumns.map((column) => <th key={column}>{column}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRecords.map((record, index) => {
-              const woNumber = String(record['WO Number'] || '').trim();
-              const rowColor = rowColors[woNumber];
-
-              return (
-              <tr key={record['WO Number'] || index} className={getCreatedAgeClass(record)}>
-                <td>{index + 1}</td>
-                {printableColumns.map((column) => (
-                  <td key={column} style={rowColor ? { backgroundColor: rowColor, color: '#ffffff' } : undefined}>
-                    {record[column] || '-'}
-                  </td>
-                ))}
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
+      <PrintableRecords
+        records={sortedRecords}
+        columns={printableColumns}
+        getRowClassName={getCreatedAgeClass}
+        getRowColor={(woNumber) => {
+          const record = records.find((item) => String(item['WO Number'] || '').trim() === woNumber) || {};
+          return getInspectionRowColor(record) || rowColors[woNumber];
+        }}
+      />
     </main>
   );
 };

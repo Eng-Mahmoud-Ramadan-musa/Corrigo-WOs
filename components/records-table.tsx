@@ -29,7 +29,6 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
   getRowClassName,
 }) => {
   const [openFilter, setOpenFilter] = useState<string | null>(null);
-  const [multiSelectColumn, setMultiSelectColumn] = useState<string | null>('Occupier');
   const [opDialog, setOpDialog] = useState<{ woNumber: string; value: string } | null>(null);
   const opDialogRef = useRef<HTMLDialogElement>(null);
   const columns = providedColumns ?? (records.length > 0
@@ -98,16 +97,6 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
                   </button>
                   {openFilter === column && (
                     <div className="column-filter-menu">
-                    {column === 'Occupier' && (
-                      <button
-                        type="button"
-                        className={`column-filter-option ${multiSelectColumn === column ? 'is-selected' : ''}`}
-                        aria-pressed={multiSelectColumn === column}
-                        onClick={() => setMultiSelectColumn((current) => current === column ? null : column)}
-                      >
-                        {multiSelectColumn === column ? 'Multi-select: On' : 'Multi-select: Off'}
-                      </button>
-                    )}
                     <button
                       type="button"
                       className="column-filter-option"
@@ -118,7 +107,7 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
                     >
                       All
                     </button>
-                    {(filterValues[column] ?? []).map((value) => multiSelectColumn === column ? (
+                    {(filterValues[column] ?? []).map((value) => (
                       <label
                         className={`column-filter-option ${columnFilters[column]?.includes(value) ? 'is-selected' : ''}`}
                         key={value}
@@ -130,25 +119,10 @@ const RecordsTable: React.FC<RecordsTableProps> = ({
                         />
                         {value}
                       </label>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`column-filter-option ${columnFilters[column]?.includes(value) ? 'is-selected' : ''}`}
-                        key={value}
-                        aria-pressed={columnFilters[column]?.includes(value) ?? false}
-                        onClick={() => {
-                          onColumnFilterChange?.(column, value, false);
-                          setOpenFilter(null);
-                        }}
-                      >
-                        {value}
-                      </button>
                     ))}
-                    {column === 'Occupier' && (
-                      <button type="button" className="column-filter-option" onClick={() => setOpenFilter(null)}>
-                        Done
-                      </button>
-                    )}
+                    <button type="button" className="column-filter-option" onClick={() => setOpenFilter(null)}>
+                      Done
+                    </button>
                     </div>
                   )}
                 </span>
