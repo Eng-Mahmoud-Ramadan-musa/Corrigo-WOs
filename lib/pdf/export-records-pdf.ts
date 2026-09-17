@@ -8,7 +8,11 @@ export async function exportRecordsPdf(sourceTable: HTMLElement) {
   const columnDefinitions = table.querySelectorAll('colgroup col');
   const keepIndexes = new Set<number>([0, 1, 2, 3, 4, 5]);
   const headers = Array.from(headerCells);
-  const opIndex = headers.findIndex((cell) => cell.textContent?.trim() === 'OP');
+  const opIndex = headers.findIndex((cell) => {
+    const headerLabel = cell.querySelector('.table-header-cell > span')?.textContent?.trim()
+      || cell.textContent?.trim().replace(/[\u25BC\u25BE]/g, '').trim();
+    return headerLabel === 'OP';
+  });
   if (opIndex >= 0) keepIndexes.add(opIndex);
 
   columnDefinitions.forEach((column, index) => {

@@ -148,6 +148,10 @@ table {
     width: 100%;
 }
 
+.table-scroll {
+    width: 100%;
+}
+
 .records-table {
     table-layout: fixed;
     width: 100%;
@@ -779,7 +783,6 @@ label.column-filter-option input {
 
     .table-scroll {
         max-width: 100%;
-        overflow-x: auto;
         overscroll-behavior-x: contain;
         -webkit-overflow-scrolling: touch;
     }
